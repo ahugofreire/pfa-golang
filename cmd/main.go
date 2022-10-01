@@ -8,7 +8,9 @@ import (
 	"github.com/ahugofreire/pfa-go/internal/order/usecase"
 	"github.com/ahugofreire/pfa-go/pkg/rabbitmq"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"net/http"
 	"sync"
+	"time"
 )
 
 func main() {
@@ -20,6 +22,19 @@ func main() {
 
 	repository := database.NewOrderRepository(db)
 	useCase := usecase.NewCalculateFinalPriceUseCase(repository)
+
+	http.HandleFunc("/total", func(w http.ResponseWriter, r *http.Request) {
+		useCase := usecase.NewGetTotalUseCase(repository)
+		output, err := useCase.Execute()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(output)
+	})
+
+	go http.ListenAndServe(":8181", nil)
+
 	ch, err := rabbitmq.OpenChannel()
 	if err != nil {
 		panic(err)
@@ -36,23 +51,6 @@ func main() {
 		go worker(out, useCase, i)
 	}
 	wg.Wait()
-
-	//go worker(out, useCase, 1)
-	//go worker(out, useCase, 2)
-	//worker(out, useCase, 3)
-
-	//inputDto := usecase.OrderInputDTO{
-	//	ID:    "1234567",
-	//	Price: 100,
-	//	Tax:   10,
-	//}
-	//
-	//output, err := useCase.Execute(inputDto)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//println(output.FinalPrice)
-
 }
 
 func worker(deliveryMessage <-chan amqp.Delivery, useCase *usecase.CalculateFinalPriceUseCase, workerID int) {
@@ -69,5 +67,6 @@ func worker(deliveryMessage <-chan amqp.Delivery, useCase *usecase.CalculateFina
 		}
 		msg.Ack(false)
 		fmt.Println("Worker", workerID, "processed order", input.ID)
+		time.Sleep(1 * time.Second)
 	}
 }
